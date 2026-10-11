@@ -13,6 +13,14 @@
 #     cp stack.env.example stack.env   # fill in real values first
 #     docker compose -f stack.yml --env-file stack.env up -d
 #
+#     Add --profile testing to also start a throwaway Jellyfin instance on
+#     artex-net (no host port published, no real media, empty library) as
+#     a second, non-deliberately-vulnerable test target alongside whatever
+#     else you point ARTEX at — useful for checking it doesn't manufacture
+#     findings against a normal, reasonably-built app:
+#       docker compose -f stack.yml --env-file stack.env --profile testing up -d
+#     Omit --profile testing for ordinary use; it won't start by default.
+#
 #   Prerequisites:
 #     - stack.env populated (ANTHROPIC_API_KEY, POSTGRES_PASSWORD at
 #       minimum) — see stack.env.example
@@ -48,6 +56,10 @@
 #       target.
 #
 # Changelog:
+#   1.1.0 (2026-10-11) - Added an optional jellyfin service behind the
+#     "testing" Compose profile: a second, non-deliberately-vulnerable
+#     target to run ARTEX against (unlike Juice Shop, a real app it isn't
+#     supposed to find a pile of intentional bugs in) — off by default.
 #   1.0.0 (2026-10-11) - Initial dev stack, following a clean smoke test
 #     in an isolated lab (see deploy/README.md for what was and wasn't
 #     verified before this).
@@ -114,6 +126,28 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - artex-net
+
+  # Throwaway test target, not a real media server — only starts with
+  # --profile testing (see Usage above). No host port published: reachable
+  # from artex only, internally, as http://jellyfin:8096. Starts with an
+  # empty library (no media mounted in) — it exists for its web UI/API/auth
+  # surface, not to serve anything.
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: artex-jellyfin
+    hostname: jellyfin
+    restart: "no"
+    profiles:
+      - testing
+    environment:
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./volume/jellyfin/config:/config
+      - ./volume/jellyfin/cache:/cache
     security_opt:
       - no-new-privileges:true
     networks:

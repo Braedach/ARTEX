@@ -98,6 +98,14 @@ as plain files). Front it with whatever reverse proxy you already use —
 ([gethomepage.dev](https://gethomepage.dev) or similar); drop them if you
 don't use one.
 
+**Optional second test target.** `stack.yml` also defines a `jellyfin`
+service behind the `testing` Compose profile — off by default, started with
+`--profile testing`. It's a throwaway instance (no host port, no real
+media, empty library) purely as a non-deliberately-vulnerable app to run
+ARTEX against alongside whatever else, as a check against it manufacturing
+findings on a normal, reasonably-built app the way Juice Shop's
+intentionally broken one can't tell you.
+
 `ARTEX_LANG=en` is defaulted in `stack.yml` itself, so the UI and
 agent-generated output (findings, reports, chat replies) start in English
 even if `stack.env` doesn't set it explicitly — confirmed against this
