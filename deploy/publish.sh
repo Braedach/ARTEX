@@ -70,6 +70,17 @@
 #       (-tags embedui -buildvcs=false).
 #
 # Changelog:
+#   1.1.1 (2026-10-11) - Clear web/.next before every frontend build —
+#     found live that Next.js's persistent build cache doesn't key on
+#     NEXT_PUBLIC_LOCALE changes, so a later run with a different value
+#     silently reused an earlier run's compiled chunks instead of
+#     rebuilding (v0.1.1 shipped v0.1.0's Korean-baked UI despite setting
+#     NEXT_PUBLIC_LOCALE=en, because web/.next/cache survived between
+#     the two runs in this same reused repo clone).
+#   1.1.0 (2026-10-11) - Added PUBLISH_UI_LOCALE (passed to the frontend
+#     build as NEXT_PUBLIC_LOCALE), defaulting to "en" — the UI chrome's
+#     default locale is a build-time-only constant, separate from
+#     stack.yml's ARTEX_LANG (server-side agent-output language only).
 #   1.0.0 (2026-10-11) - Initial version.
 #
 # =============================================================================
@@ -200,6 +211,16 @@ fi
 # Without this, every fresh browser (no cookie/localStorage yet) sees the
 # fork's hardcoded "ko" default regardless of ARTEX_LANG — confirmed live
 # on 2026-10-11 (server logs were correctly in English; the UI was not).
+# This repo clone is reused across runs (same bind-mounted REPO_ROOT every
+# time, not a fresh checkout), so web/.next/cache persists on disk between
+# publish.sh invocations. Next.js's persistent build cache does not key on
+# env var changes by default, so a later run can silently reuse compiled
+# chunks from an earlier run's different NEXT_PUBLIC_LOCALE value instead
+# of rebuilding — confirmed live: v0.1.1 set NEXT_PUBLIC_LOCALE=en but
+# still shipped v0.1.0's "ko"-baked output (<html lang="ko">, Korean button
+# text), because /opt/artex/src/web/.next/cache survived from the v0.1.0
+# build. Force a clean build every time rather than risk it again.
+rm -rf "${REPO_ROOT}/web/.next"
 info "Building static frontend export (node:20-bookworm, NEXT_PUBLIC_LOCALE=${PUBLISH_UI_LOCALE:-en})..."
 docker run --rm -v "${REPO_ROOT}":/repo -w /repo/web \
   -e NEXT_PUBLIC_LOCALE="${PUBLISH_UI_LOCALE:-en}" node:20-bookworm \
