@@ -1,0 +1,125 @@
+# deploy/stack.yml
+# Version: 1.0.0
+# Created: 2026-10-11
+#
+# Summary:
+#   Purpose:
+#     Runs this fork from the image deploy/publish.sh builds and pushes.
+#     Only ever pulls ghcr.io/braedach/artex — never builds anything
+#     itself. See deploy/README.md for the full picture, including what
+#     was and wasn't verified before this was written.
+#
+#   Usage:
+#     cp stack.env.example stack.env   # fill in real values first
+#     docker compose -f stack.yml --env-file stack.env up -d
+#
+#   Prerequisites:
+#     - stack.env populated (ANTHROPIC_API_KEY, POSTGRES_PASSWORD at
+#       minimum) — see stack.env.example
+#     - ./volume/postgres and ./volume/data exist on the host (created
+#       automatically by Docker on first `up` if absent)
+#     - ghcr.io/braedach/artex set to Public in GitHub's package settings
+#       (defaults private on first push — see publish.sh)
+#     - whatever reverse proxy / dashboard labelling convention you use,
+#       wired up separately — not done by this file
+#
+#   Warnings:
+#     - ARTEX_LANG=en is set below with a default so the UI and agent
+#       output start in English even if stack.env is incomplete — see
+#       server/server.go's precedence chain (runtime DB setting >
+#       ARTEX_LANG > config file > "ko", confirmed in this fork's own
+#       source). Once someone changes the language from the Settings UI,
+#       that runtime setting (stored in Postgres) wins from then on
+#       regardless of this default.
+#     - No cap_drop/read_only hardening applied yet — this fork's own
+#       tooling (nmap in particular) likely needs NET_RAW/NET_ADMIN, and
+#       Playwright/Chromium tends to need a writable filesystem. Verify
+#       what's actually needed once this is running for real before
+#       tightening — don't assume cap_drop: ALL works without testing.
+#     - :latest is used deliberately (ARTEX_TAG default) — intended for a
+#       development/sandbox deployment, not production; still a manual
+#       `docker compose pull && up -d`, never an auto-updater. Pin
+#       ARTEX_TAG to a specific version if that stops being true.
+#     - Postgres data is a bind mount (./volume/postgres), not a named
+#       volume, so it's visible/backupable as plain files.
+#     - This stack does not add any network-level isolation beyond its
+#       own `artex-net` — see deploy/README.md's "what wasn't verified"
+#       section before pointing this at anything beyond a local/isolated
+#       target.
+#
+# Changelog:
+#   1.0.0 (2026-10-11) - Initial dev stack, following a clean smoke test
+#     in an isolated lab (see deploy/README.md for what was and wasn't
+#     verified before this).
+
+name: stack-artex
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: artex-postgres
+    hostname: artex-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: artex
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: artex
+    volumes:
+      - ./volume/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U artex -d artex"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - artex-net
+
+  artex:
+    image: ghcr.io/braedach/artex:${ARTEX_TAG:-latest}
+    container_name: artex
+    hostname: artex
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    labels:
+      - com.docker.compose.project=artex
+      - com.docker.compose.service=artex
+      - homepage.group=Open-Source Intelligence
+      - homepage.name=ARTEX
+      - homepage.description=Autonomous LLM pentest agent (dev/sandbox use)
+      - homepage.icon=artex.png
+      # homepage.href intentionally omitted — set it to wherever you
+      # actually publish this (see deploy/README.md), it's specific to
+      # your own reverse-proxy setup.
+    environment:
+      ARTEX_PG_DSN: postgres://artex:${POSTGRES_PASSWORD}@artex-postgres:5432/artex?sslmode=disable
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ARTEX_LANG: ${ARTEX_LANG:-en}
+      ARTEX_SETUP_TOKEN: ${ARTEX_SETUP_TOKEN:-}
+      ARTEX_ADMIN_PASSWORD: ${ARTEX_ADMIN_PASSWORD:-}
+      TZ: ${TZ:-UTC}
+    ports:
+      - ${ARTEX_PORT:-8787}:8787
+      - ${ARTEX_PROXY_PORT:-8788}:8788
+    volumes:
+      - ./volume/data:/app/data
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8787/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - artex-net
+
+networks:
+  artex-net:
+    name: artex-net
+    driver: bridge

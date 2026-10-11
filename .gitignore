@@ -83,3 +83,9 @@ secrets.env
 # artex.exe 를 포그라운드로 띄울 때 리다이렉트한 런타임 로그
 /artex.out.log
 /artex.err.log
+
+# deploy/: publish.sh's build state (log, cached GHCR token, packaged
+# release zip) and the running stack's bind-mounted runtime data/secrets —
+# neither ever belongs in git.
+/deploy/build/
+/deploy/volume/
