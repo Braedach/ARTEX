@@ -117,13 +117,20 @@ ARTEX against alongside whatever else, as a check against it manufacturing
 findings on a normal, reasonably-built app the way Juice Shop's
 intentionally broken one can't tell you.
 
-`ARTEX_LANG=en` is defaulted in `stack.yml` itself, so the UI and
-agent-generated output (findings, reports, chat replies) start in English
-even if `stack.env` doesn't set it explicitly — confirmed against this
-fork's actual startup precedence (`server/server.go`: a runtime setting
-chosen in Settings overrides `ARTEX_LANG`, which overrides this default).
-Once someone changes the language from the Settings UI, that choice is
-stored in Postgres and wins from then on regardless of this default.
+**Two separate language settings, not one — easy to half-fix, as this
+deployment's own history shows.** `ARTEX_LANG=en` is defaulted in
+`stack.yml` so the agent's own output (findings, reports, chat replies)
+starts in English even if `stack.env` doesn't set it explicitly —
+confirmed against this fork's actual startup precedence (`server/server.go`:
+a runtime setting chosen in Settings overrides `ARTEX_LANG`, which
+overrides this default). That setting has **no effect on the UI chrome**
+(menus, buttons, page text) — that's a static-export, build-time-only
+constant (`web/src/i18n/config.ts`), controlled instead by
+`PUBLISH_UI_LOCALE` when `publish.sh` builds the image (defaults to
+`en`), and overridable after that only per-browser (cookie/localStorage,
+resets on a fresh browser or cleared site data). Set both, or you get
+exactly what this deployment got the first time: English logs and
+findings, Korean menus.
 
 ## What to keep in mind
 

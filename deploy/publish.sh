@@ -17,6 +17,10 @@
 #     ./publish.sh v0.1.0          # build + push + release that tag
 #     ./publish.sh v0.1.0 --force  # rebuild even if already published
 #     ./publish.sh v0.1.0 --check  # report status only, do nothing
+#     PUBLISH_UI_LOCALE=ko ./publish.sh v0.1.0   # bakes a different UI
+#       chrome default (en/ko/zh/es) into the static frontend export at
+#       build time. Default "en". This is NOT the same thing as
+#       ARTEX_LANG in stack.yml — see the Warnings below.
 #
 #   Prerequisites:
 #     - git + docker on the build host (the actual Go/Node toolchain runs
@@ -33,6 +37,16 @@
 #       package to be pullable without extra credentials.
 #
 #   Warnings:
+#     - PUBLISH_UI_LOCALE (this script, build time) and ARTEX_LANG
+#       (stack.yml, container runtime) are two genuinely separate
+#       settings controlling two separate things, confirmed from this
+#       fork's own source: the UI chrome's default locale is a static-
+#       export build-time constant with no runtime override possible
+#       (web/src/i18n/config.ts), while ARTEX_LANG only ever affects the
+#       server-side agent-output language (findings/reports/chat text).
+#       Setting one without the other produces exactly the confusing
+#       half-English result this comment exists to prevent you
+#       re-discovering.
 #     - Builds an explicit tag you pass, not a moving branch — there is no
 #       "track main and rebuild on drift" behaviour here. Create/push the
 #       tag first.
@@ -178,8 +192,17 @@ if [[ "$CHECK_ONLY" -eq 1 ]]; then
 fi
 
 # ---- build: static frontend export (disposable node container) -------------
-info "Building static frontend export (node:20-bookworm)..."
-docker run --rm -v "${REPO_ROOT}":/repo -w /repo/web node:20-bookworm \
+# NEXT_PUBLIC_LOCALE is read at BUILD time only (web/src/i18n/config.ts's
+# resolveLocale() — a static export can't read env vars at runtime) and
+# bakes in the UI chrome's default locale. It is NOT the same thing as
+# ARTEX_LANG below: that controls the separate, server-side agent-output
+# language (findings/reports/chat text) and has zero effect on this.
+# Without this, every fresh browser (no cookie/localStorage yet) sees the
+# fork's hardcoded "ko" default regardless of ARTEX_LANG — confirmed live
+# on 2026-10-11 (server logs were correctly in English; the UI was not).
+info "Building static frontend export (node:20-bookworm, NEXT_PUBLIC_LOCALE=${PUBLISH_UI_LOCALE:-en})..."
+docker run --rm -v "${REPO_ROOT}":/repo -w /repo/web \
+  -e NEXT_PUBLIC_LOCALE="${PUBLISH_UI_LOCALE:-en}" node:20-bookworm \
   bash -c "npm ci --include=dev && npm run build:static" 2>&1 | tee -a "$LOG_FILE"
 
 rm -rf "${REPO_ROOT}/server/webui/dist"
