@@ -40,13 +40,23 @@
 #       wired up separately — not done by this file
 #
 #   Warnings:
-#     - ARTEX_LANG=en is set below with a default so the UI and agent
-#       output start in English even if stack.env is incomplete — see
-#       server/server.go's precedence chain (runtime DB setting >
-#       ARTEX_LANG > config file > "ko", confirmed in this fork's own
-#       source). Once someone changes the language from the Settings UI,
-#       that runtime setting (stored in Postgres) wins from then on
-#       regardless of this default.
+#     - ARTEX_LANG=en is set below with a default so the agent's own
+#       OUTPUT (findings/reports/chat text) starts in English even if
+#       stack.env is incomplete — see server/server.go's precedence chain
+#       (runtime DB setting > ARTEX_LANG > config file > "ko", confirmed
+#       in this fork's own source). Once someone changes the language
+#       from the Settings UI, that runtime setting (stored in Postgres)
+#       wins from then on regardless of this default.
+#     - This does NOT control the UI chrome's language (menus, buttons,
+#       page text) — that's a genuinely separate setting, baked into the
+#       static frontend at BUILD time (see deploy/publish.sh's
+#       PUBLISH_UI_LOCALE), then overridable per-browser only (cookie/
+#       localStorage, resets on a fresh browser/cleared site data).
+#       Confirmed the hard way: setting only ARTEX_LANG produced English
+#       server logs and agent output with a still-Korean UI, because the
+#       image this was running had been built without PUBLISH_UI_LOCALE
+#       set, so the static export's baked-in default ("ko") was all any
+#       fresh browser ever saw.
 #     - No cap_drop/read_only hardening applied yet — this fork's own
 #       tooling (nmap in particular) likely needs NET_RAW/NET_ADMIN, and
 #       Playwright/Chromium tends to need a writable filesystem. Verify
@@ -69,6 +79,10 @@
 #       target.
 #
 # Changelog:
+#   1.2.1 (2026-10-11) - Corrected the ARTEX_LANG comment: it only ever
+#     controlled server-side agent output, never the UI chrome — that's
+#     a separate, build-time-only setting, fixed in deploy/publish.sh
+#     (PUBLISH_UI_LOCALE), not here. No functional change in this file.
 #   1.2.0 (2026-10-11) - Moved all bind mounts from relative ./volume/...
 #     paths to absolute /srv/artex/... ones, matching every other real
 #     stack this repo owner runs (stack-wireshark.yml, stack-vert-dev.yml)
