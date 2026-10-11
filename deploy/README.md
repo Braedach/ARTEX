@@ -48,6 +48,9 @@ deploy/
 └── stack.env             # real secrets — gitignored, never commit
 ```
 
+Runtime data lives outside the repo entirely, at `/srv/artex` on the deploy
+host — not under `deploy/` at all, see Deploy below.
+
 ## Build + publish
 
 ```bash
@@ -84,6 +87,7 @@ deploy host won't be able to pull it without its own credentials.
 ## Deploy
 
 ```bash
+mkdir -p /srv/artex/{postgres,data,jellyfin/config,jellyfin/cache}
 cd deploy
 cp stack.env.example stack.env   # fill in real values, never commit this
 docker compose -f stack.yml --env-file stack.env up -d
@@ -91,9 +95,16 @@ docker compose -f stack.yml --env-file stack.env up -d
 
 `stack.yml` only ever pulls the image `publish.sh` built — it never builds
 anything itself. It declares its own `artex-net` network (nothing else
-should be attached to it) and a Postgres sidecar on a bind-mounted volume
-(`./volume/postgres`, not a named Docker volume, so it's visible/backupable
-as plain files). Front it with whatever reverse proxy you already use —
+should be attached to it) and a Postgres sidecar, both bind-mounted under
+`/srv/artex` — an absolute host path, not a relative `./volume/` one
+(matching every other real stack this fork's deployment follows the
+convention of: `stack-wireshark.yml`, `stack-vert-dev.yml`, both use
+`/srv/<service>`). A relative bind mount isn't guaranteed to resolve
+against a stable, persistent directory under every deployment tool —
+Dockhand/Compose project working directories in particular aren't
+something to assume data survival on. Not a named Docker volume either
+way, so it's visible/backupable as plain files. Front it with whatever
+reverse proxy you already use —
 `stack.yml`'s `homepage.*` labels assume a label-driven dashboard
 ([gethomepage.dev](https://gethomepage.dev) or similar); drop them if you
 don't use one.

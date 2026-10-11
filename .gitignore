@@ -85,7 +85,7 @@ secrets.env
 /artex.err.log
 
 # deploy/: publish.sh's build state (log, cached GHCR token, packaged
-# release zip) and the running stack's bind-mounted runtime data/secrets —
-# neither ever belongs in git.
+# release zip) — never belongs in git. The running stack's own runtime
+# data is bind-mounted outside the repo entirely, at /srv/artex on the
+# deploy host, so there's nothing repo-relative to ignore for that.
 /deploy/build/
-/deploy/volume/
