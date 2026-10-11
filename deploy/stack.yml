@@ -24,8 +24,16 @@
 #   Prerequisites:
 #     - stack.env populated (ANTHROPIC_API_KEY, POSTGRES_PASSWORD at
 #       minimum) — see stack.env.example
-#     - ./volume/postgres and ./volume/data exist on the host (created
-#       automatically by Docker on first `up` if absent)
+#     - /srv/artex/{postgres,data} exist on the host (and
+#       /srv/artex/jellyfin/{config,cache} too if using --profile testing).
+#       artex runs as root in its own container (confirmed directly — data
+#       it wrote during testing came back root-owned on the host), and the
+#       official postgres image's entrypoint chowns its data dir itself on
+#       first start regardless of host-side ownership, so a plain root-
+#       owned mkdir is enough; Docker will also create these automatically
+#       on first `up` if absent, but create them ahead of time instead of
+#       letting Docker improvise it:
+#         mkdir -p /srv/artex/{postgres,data,jellyfin/config,jellyfin/cache}
 #     - ghcr.io/braedach/artex set to Public in GitHub's package settings
 #       (defaults private on first push — see publish.sh)
 #     - whatever reverse proxy / dashboard labelling convention you use,
@@ -48,14 +56,24 @@
 #       development/sandbox deployment, not production; still a manual
 #       `docker compose pull && up -d`, never an auto-updater. Pin
 #       ARTEX_TAG to a specific version if that stops being true.
-#     - Postgres data is a bind mount (./volume/postgres), not a named
-#       volume, so it's visible/backupable as plain files.
+#     - All state is bind-mounted under /srv/artex on the host (absolute
+#       path, not a relative ./volume/ one — a relative bind mount isn't
+#       guaranteed to resolve against a stable, persistent directory under
+#       every deployment tool; Dockhand/Compose project working directories
+#       in particular aren't something to assume data survival on). Not a
+#       named Docker volume either way, so it's visible/backupable as
+#       plain files, matching this repo owner's other stacks' convention.
 #     - This stack does not add any network-level isolation beyond its
 #       own `artex-net` — see deploy/README.md's "what wasn't verified"
 #       section before pointing this at anything beyond a local/isolated
 #       target.
 #
 # Changelog:
+#   1.2.0 (2026-10-11) - Moved all bind mounts from relative ./volume/...
+#     paths to absolute /srv/artex/... ones, matching every other real
+#     stack this repo owner runs (stack-wireshark.yml, stack-vert-dev.yml)
+#     and avoiding the relative-path risk a Dockhand-managed deployment
+#     doesn't actually need to carry.
 #   1.1.1 (2026-10-11) - Dropped the /etc/timezone:/etc/timezone:ro bind
 #     mount from artex — found a deploy host where /etc/timezone is a
 #     directory, not the plain-text file it's supposed to be (unrelated
@@ -84,7 +102,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: artex
     volumes:
-      - ./volume/postgres:/var/lib/postgresql/data
+      - /srv/artex/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U artex -d artex"]
       interval: 10s
@@ -124,7 +142,7 @@ services:
       - ${ARTEX_PORT:-8787}:8787
       - ${ARTEX_PROXY_PORT:-8788}:8788
     volumes:
-      - ./volume/data:/app/data
+      - /srv/artex/data:/app/data
       - /etc/localtime:/etc/localtime:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8787/ || exit 1"]
@@ -152,8 +170,8 @@ services:
     environment:
       TZ: ${TZ:-UTC}
     volumes:
-      - ./volume/jellyfin/config:/config
-      - ./volume/jellyfin/cache:/cache
+      - /srv/artex/jellyfin/config:/config
+      - /srv/artex/jellyfin/cache:/cache
     security_opt:
       - no-new-privileges:true
     networks:
