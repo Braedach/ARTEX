@@ -56,6 +56,13 @@
 #       target.
 #
 # Changelog:
+#   1.1.1 (2026-10-11) - Dropped the /etc/timezone:/etc/timezone:ro bind
+#     mount from artex — found a deploy host where /etc/timezone is a
+#     directory, not the plain-text file it's supposed to be (unrelated
+#     breakage, not ours to fix, but Docker can't bind a host directory
+#     onto a container file path either way: "OCI runtime create failed
+#     ... not a directory"). /etc/localtime:ro + the TZ env var already
+#     cover timezone correctness without needing this second mount.
 #   1.1.0 (2026-10-11) - Added an optional jellyfin service behind the
 #     "testing" Compose profile: a second, non-deliberately-vulnerable
 #     target to run ARTEX against (unlike Juice Shop, a real app it isn't
@@ -119,7 +126,6 @@ services:
     volumes:
       - ./volume/data:/app/data
       - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8787/ || exit 1"]
       interval: 30s
