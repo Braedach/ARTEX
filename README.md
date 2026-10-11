@@ -404,6 +404,11 @@ This project is provided "AS IS" without any warranty, express or implied. The o
 
 **All legal responsibility and consequences rest with the user.**
 
+1.  Ran a security audit against the code
+2.  Converted associated README files to english, and updated the legal disclaimers
+3.  Ran a smoke test in an isolated environment
+4.  Move to development LXC on passing for further testing.
+
 ---
 
 ## Upstream project
