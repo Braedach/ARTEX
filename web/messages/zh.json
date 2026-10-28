@@ -30,7 +30,10 @@
       "setupToken": "设置令牌",
       "setupTokenPlaceholder": "服务器控制台日志 [auth] 行中打印的 32 位令牌",
       "setupTokenHelp": "为防止远程抢占管理员账户，需要输入仅在服务器启动终端（Docker 为 docker compose logs artex）中打印的设置令牌。",
-      "errorTokenEmpty": "请输入设置令牌"
+      "errorTokenEmpty": "请输入设置令牌",
+      "unavailableTitle": "无法确认初始化状态",
+      "unavailableDesc": "后端或数据库暂时不可用。为避免覆盖实例上已有的密码，初始化入口已临时关闭——请恢复服务后重试。",
+      "retry": "重试"
     },
     "terms": {
       "a1Body": "本软件（ARTEX）是一款基于 GNU Affero General Public License v3.0（AGPL-3.0）发布的开源程序。您可依据该协议自由使用、复制、修改和分发本软件；但任何衍生作品（包括通过网络向第三方提供的在线服务）均须同样以 AGPL-3.0 协议开源并向使用者公开对应的完整源代码。AGPL-3.0 完整条款以随附的 LICENSE 文件为准。",
@@ -264,6 +267,8 @@
       "title": "渗透测试报告（Markdown）",
       "copy": "复制",
       "loading": "加载中…",
+      "loadError": "无法加载报告，请重试。",
+      "retry": "重试",
       "empty": "暂无报告",
       "copySuccess": "已复制 Markdown",
       "copyError": "复制失败，请手动选择文本复制"
@@ -1756,7 +1761,17 @@
       "loadConfigFailed": "加载模型兜底配置失败: {error}",
       "configSaved": "模型兜底配置已保存",
       "restored": "已恢复内置默认模板",
-      "restoreFailed": "恢复失败: {error}"
+      "restoreFailed": "恢复失败: {error}",
+      "usageTitle": "审批 Token 消耗",
+      "usageDesc": "模型兜底审批累计用量，单独计量（worker=judge），不与各模型配置的统计混在一起",
+      "usageRefresh": "刷新",
+      "usageCalls": "审批调用",
+      "usageInput": "输入 Token",
+      "usageOutput": "输出 Token",
+      "usageCacheRead": "缓存读",
+      "usageCacheWrite": "缓存写",
+      "usageDaily": "近 30 天每日消耗（输入 + 输出）",
+      "usageBarTitle": "{date} · {calls} 次 · {tokens} tokens"
     }
   },
   "assetInterceptPage": {
@@ -3698,6 +3713,52 @@
       "sec": "{n} 秒",
       "min": "{n} 分钟",
       "hour": "{n} 小时"
+    }
+  },
+  "builtinAgents": {
+    "goals": {
+      "name": "目标拆解",
+      "description": "把渗透任务目标拆解成若干独立、可验证的子目标。",
+      "vars": {
+        "EngagementDescription": "任务描述（测试对象/背景）"
+      }
+    },
+    "planner": {
+      "name": "规划",
+      "description": "读取态势、判定目标，只在确有未覆盖的新方向时补充探索意图（每任务一个规划循环）。",
+      "vars": {
+        "Goal": "任务总目标",
+        "AssetSummary": "资产计数/类型分布摘要(可选)"
+      }
+    },
+    "mainagent": {
+      "name": "主",
+      "description": "人机接口：观察进展，把人的意图落成 hint 或高优先级意图。",
+      "vars": {
+        "Goal": "当前任务目标",
+        "AssetSummary": "开局态势摘要(可选)",
+        "FindingsSummary": "已确认漏洞摘要(可选)"
+      }
+    },
+    "worker": {
+      "name": "执行",
+      "description": "领取一条意图执行，把发现的事实/漏洞写回知识图谱后停止。",
+      "vars": {
+        "ProxyAddr": "记录代理地址(驱动 if 双文案)",
+        "WorkerName": "worker 自我标识(可选)"
+      }
+    },
+    "auto": {
+      "name": "Auto",
+      "description": "平台操作助手：用工具管理任务(建/看/暂停/给提示)与资产，并可创建/修改 skill、自定义工具、MCP。"
+    },
+    "pentest": {
+      "name": "渗透测试",
+      "description": "独立渗透 agent：一人从侦察→找攻击面→深入利用→验证→收尾走完整条链，自己规划、自己执行、自己对抗式验证。"
+    },
+    "retester": {
+      "name": "漏洞复测",
+      "description": "从漏洞详情手动启动，读取原证据并保存独立复测结论。"
     }
   }
 }
