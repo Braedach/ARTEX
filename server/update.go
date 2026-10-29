@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -221,6 +223,10 @@ func (h *updateHub) subscribe() (<-chan updateProgress, func()) {
 // 的情况很常见（服务器在内网、或代理只配在浏览器上），那时点更新必然失败，
 // 不如在检查这一步就如实报错。
 func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
+	if selfUpdateDisabled() {
+		writeErr(w, 403, updateErrDisabled)
+		return
+	}
 	current := BuildVersion
 	mode := "binary"
 	if selfupdate.InDocker() {
@@ -281,6 +287,10 @@ func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
 // 立刻返回 202，实际工作在后台 goroutine 上跑：整包下载可能要几分钟，
 // 挂在请求上会被反代超时掐断。进度走 /api/update/stream。
 func (s *Server) updateApply(w http.ResponseWriter, r *http.Request) {
+	if selfUpdateDisabled() {
+		writeErr(w, 403, updateErrDisabled)
+		return
+	}
 	current := BuildVersion
 
 	// 走缓存：确保装上的就是用户在界面上看到并确认的那个版本。
@@ -326,6 +336,10 @@ func (s *Server) updateApply(w http.ResponseWriter, r *http.Request) {
 
 // updateRollback 主动退回上一版本（换装前备份的 artex.old）。
 func (s *Server) updateRollback(w http.ResponseWriter, r *http.Request) {
+	if selfUpdateDisabled() {
+		writeErr(w, 403, updateErrDisabled)
+		return
+	}
 	if _, running := updHub.snapshot(); running {
 		writeErr(w, 409, updateErrRollbackInProgress)
 		return
@@ -383,4 +397,19 @@ func (s *Server) updateStream(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// updateErrDisabled is returned while self-update is switched off.
+const updateErrDisabled = "Self-update is disabled on this deployment (ARTEX_DISABLE_SELFUPDATE=1)"
+
+// selfUpdateDisabled reports whether the operator turned self-update off.
+// The release source is hard-coded to a third-party repository and the only
+// integrity check is a SHA256SUMS file published next to the binary, so a
+// deployment that builds and pins its own images should not offer it.
+func selfUpdateDisabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("ARTEX_DISABLE_SELFUPDATE"))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }

@@ -449,7 +449,13 @@ func extractToken(r *http.Request) string {
 	if c, err := r.Cookie("artex_token"); err == nil && c.Value != "" {
 		return c.Value
 	}
-	return r.URL.Query().Get("token")
+	// ?token= is accepted only for EventSource streams (the browser cannot set
+	// headers on those). Elsewhere a URL token would leak through access logs,
+	// proxies and the Referer header.
+	if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		return r.URL.Query().Get("token")
+	}
+	return ""
 }
 
 // requireAuth wraps h with JWT validation.
