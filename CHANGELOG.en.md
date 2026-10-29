@@ -2,11 +2,61 @@
 
 [한국어](CHANGELOG.md) · English · [中文 (upstream original)](CHANGELOG.zh.md)
 
-This document records the changes that the ARTEX Korean edition (this fork) adds on top of the upstream repository. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+This document records the changes that the ARTEX global edition (this fork) adds on top of the upstream repository. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 The upstream ARTEX project's per-version release history (0.3.x and earlier) and contributor list are preserved verbatim in Chinese in [`CHANGELOG.zh.md`](CHANGELOG.zh.md). As with `README.zh.md`, the original text is kept unchanged so that it stays easy to compare against upstream changes. The detailed content and rationale for each change can be found in the repository's commit history.
 
-## [Unreleased] · Korean edition changes
+## [Unreleased]
+
+### Localization (i18n)
+
+- **Added Spanish documentation.** Translated `README.es.md` from the English README into natural Spanish and added a Spanish link to the language navigation of all five READMEs (English, Korean, Chinese, Spanish, Japanese). Code, commands, payloads, URLs and identifiers are preserved; only descriptive text is translated.
+- **Added Japanese (ja) across the whole localization stack.** Japanese joins the app's supported languages and can be selected in Settings. UI messages (`web/messages/ja.json`), the date locale (`ja-JP`), the agent output language, and the settings and server message catalogs (`config/msg_i18n.go`, `server/errmsg_catalog.go`) are translated into Japanese, while the agents' internal reasoning prompts stay in their original language as for every other locale. For docs, `README.ja.md` was added and the language navigation and supported-language notes across all five READMEs were updated to include Japanese.
+
+### Fixed
+
+- Distinguish task report loading failures from empty reports and offer a retry button. Late responses from a previous task cannot replace the current task report.
+
+## [0.3.15-global.1] · 2026-10-14 · ARTEX-global transition release
+
+The release that turns the Korean edition (`0.3.15-ko.1`) into ARTEX-global, a multilingual edition for defenders and researchers worldwide. Based on upstream ARTEX 0.3.15; no agent features were changed.
+
+### Identity · multilingual (ARTEX-global rename)
+
+- **Rebranded the ARTEX Korean edition as the ARTEX global edition.** The identity shifts from a region-specific edition to a multilingual edition that defenders and researchers worldwide can reach. No agent features were changed; only the multilingual layer and the docs were touched.
+  - **Switched the default language from Korean to English.** User-facing output now defaults to English (bootstrap layer `config.DefaultLanguage`, web `DEFAULT_LOCALE`, `config.example.json`, and the `.env.example` comment); Korean, Chinese, and Spanish are selectable in Settings. The agent-package standalone fallback (`agent.defaultOutputLang`) and the Korean golden tests were left in place to avoid regressions.
+  - **Reworded the identity strings to the global edition.** Replaced the "Korean edition" wording in the READMEs (Korean, English, Chinese), CONTRIBUTING, SECURITY, the maintainer runbook, and the issue/PR templates, and renamed the English README's "Why a Korean edition" section and its anchor (`#why-a-korean-edition` → `#why-a-global-edition`). The repository slug and image path are renamed to `artex-global` together in the 'Repository rename' section below in this release.
+
+### English-first README and screenshots
+
+- **Promoted the English README to the repository landing page.** The English document is now `README.md` (the first screen), the Korean body moved to `README.ko.md`, and the links/anchors from the root docs to the top-level README were rewired to English=`README.md`, Korean=`README.ko.md`. The README links inside the detections tree were left as-is.
+- **Replaced the preview screenshots with English ones.** Recaptured the mock UI in the default English and placed them under `screenshots/en/` (dashboard, findings, chat); the old Korean captures (`screenshots/ko/`) were removed.
+- **Made on-screen dates follow the app language.** Replaced 18 hard-coded `ko-KR` locales with `getDateLocale()` in `web/src/i18n/datetime.ts` (display language → BCP47), so dates render in English by default.
+- **Translated the demo data to English.** Translated ~220 user-facing Korean strings in the mock data (`web/src/lib/mock/{data,handler}.ts`) to English, preserving commands, payloads, URLs, and identifiers verbatim.
+
+### Repository rename (artex-ko → artex-global)
+
+- **Renamed the repository to `artex-global`.** Changed the GitHub slug to `jiwoochris/artex-global` (old URLs kept via GitHub redirects) and the container image path to `ghcr.io/jiwoochris/artex-global`. Replaced 126 occurrences across 37 files in the repo — badges, clone URLs, `docker-compose.yml`, `release.yml`, `install.sh`, docs, edition labels, detection-rule authors, the MISP event name. The upstream Go module (`github.com/Autumn-27/artex`) and the historical version tag (`0.3.15-ko.1`) were left unchanged.
+
+### Localization (i18n)
+
+- **Show built-in agent names and descriptions per language.** The built-in agents (goal decomposition, planning, main, execution, Auto, penetration test, vulnerability retest) are DB seed data (`builtinAgents` in `db/db.go` and the retest agent in `server/finding_retests.go`), so their names, descriptions, and prompt-variable labels used to appear only in Chinese. They are now looked up by agent `key` in `web/messages/` and shown in the current language (falling back to the DB value). User-created agents keep showing their DB values. Applied to the agent list, the editor drawer, and the chat screen; approval/intercept records that come from a chat now show the agent name instead of its internal key (e.g. `pentest`).
+
+### Upstream sync
+
+- **Model judge (fallback approval) token usage is reported separately (upstream 0.3.15, #191).** This upstream change was missing from 0.3.15-ko.1. Judge calls are metered as `worker=judge`, served by the new `GET /api/intercept/judge/usage`. Under the model judge switch in "System → Command interception", a card shows cumulative calls, input, output and cache read/write plus a 30-day daily bar chart.
+
+### Security
+
+- **Closed the remaining gaps in the #22 auth hardening.** A failed password-hash read was still folded into "no password" in token verification and in startup first-run handling, caching an empty hash. Token verification now refuses on a failed read, and startup skips env-var initialisation and setup-token issuance. `ARTEX_ADMIN_PASSWORD` initialisation is also stored once via `InsertSettingIfAbsent` and checked against the 72-byte limit. The `/setup` screen shows a retry notice instead of the form when it cannot confirm the state (the UI part of upstream #197).
+
+## [0.3.15-ko.1] · 2026-10-12 · First Korean-edition release
+
+The first release of the Korean edition, based on upstream ARTEX 0.3.15.
+
+### Distribution
+
+- **The Korean-edition Docker image is now published.** Upstream's `autumn27/artex` image was taken down from Docker Hub, which broke the `docker compose up -d` quick start. Each release tag now pushes a multi-architecture (amd64/arm64) image to `ghcr.io/jiwoochris/artex-global`, and `docker-compose.yml` pulls that image.
 
 ### Security
 
@@ -14,6 +64,7 @@ The upstream ARTEX project's per-version release history (0.3.x and earlier) and
 - **Default bind address is now 127.0.0.1.** The `artex -addr` default moves from `:8787` to `127.0.0.1:8787`, and `docker-compose.yml` publishes 8787 as `${ARTEX_BIND:-127.0.0.1}`. Deployments reached from other machines must pass `-addr :8787` or set `ARTEX_BIND=0.0.0.0` in `.env`. Starting without a password on a non-loopback address logs a warning.
 - **Changing the password invalidates every existing token.** The JWT signing key is derived from the password hash, so a change through the UI, `reset-password.sh`, or a direct DB edit ends earlier sessions. Users must log in once after upgrading. The change-password response carries a fresh token so the current browser session continues.
 - **Replaced wildcard CORS with an allowlist.** Instead of `Access-Control-Allow-Origin: *`, headers are only sent for origins in `ARTEX_CORS_ORIGINS` (default: `next dev` at `http://localhost:5173`). Also added server-side minimum password length (8) and audit logs for failed initialisation/login attempts (with client address).
+- **Ported the authentication hardening from upstream ARTEX 0.3.15.** Password-setting reads now fail closed with 503 instead of reporting `initialized:false` (`authStatus`, `authInit`, `authLogin`, change-password). First-time setup is atomic via `INSERT ... ON CONFLICT DO NOTHING` ([`db.InsertSettingIfAbsent`](db/settings.go)), so the primary-key constraint protects the existing value even when the read check is unreliable. Passwords over 72 bytes are rejected with 400 instead of 500, and a database connection-pool cap (32) reduces the path where a `too many clients` error can masquerade as a read failure. Ported to match upstream commit `a951e4a` (0.3.15); only the parts not already covered by PR #20 were added.
 
 ### Localization (i18n)
 

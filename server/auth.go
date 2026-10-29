@@ -36,7 +36,10 @@ const (
 	adminPasswordEnv = "ARTEX_ADMIN_PASSWORD"
 	// minPasswordLen mirrors the /setup screen's client-side rule, enforced server side.
 	minPasswordLen = 8
-	setupTokenLen  = 32
+	// maxPasswordBytes is bcrypt's hard limit: GenerateFromPassword errors past 72
+	// bytes, so reject it up front with a clear message instead of a 500.
+	maxPasswordBytes = 72
+	setupTokenLen    = 32
 )
 
 // 인증 엔드포인트가 HTTP 응답으로 돌려주는 사용자 노출 문구다. 한국어 UI 에서 로그인·
@@ -49,6 +52,7 @@ const (
 	authErrPasswordAlreadySet   = "비밀번호가 이미 설정되어 있습니다"
 	authErrPasswordEmpty        = "비밀번호를 입력해 주세요"
 	authErrPasswordTooShort     = "비밀번호는 최소 8자 이상이어야 합니다"
+	authErrPasswordTooLong      = "비밀번호는 72바이트를 넘을 수 없습니다"
 	authErrNewPasswordEmpty     = "새 비밀번호를 입력해 주세요"
 	authErrPasswordHash         = "비밀번호 암호화에 실패했습니다"
 	authErrSaveFailedPrefix     = "저장에 실패했습니다: "
@@ -59,6 +63,10 @@ const (
 	authErrBadCredential        = "사용자 이름 또는 비밀번호가 올바르지 않습니다"
 	authErrSetupTokenInvalid    = "설정 토큰이 올바르지 않습니다. 서버 콘솔 로그의 [auth] 줄에 출력된 설정 토큰을 입력해 주세요"
 	authErrTooManyAttempts      = "실패한 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요"
+	// 비밀번호 관련 읽기가 실패했을 때 돌려주는 공통 문구다. 이 핸들러들은 "읽지 못함"을
+	// "설정되지 않음"으로 취급하면 안 된다: 그렇게 취급하면 데이터베이스 장애 중에 초기화
+	// 입구가 열려, 인증되지 않은 요청이 이미 설정된 관리자 비밀번호를 덮어쓸 수 있다.
+	authErrDataSourceUnavailable = "데이터 소스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요"
 )
 
 // loadOrCreateJWTKey reads the 32-byte signing key from keyDir/jwt.key. keyDir is
@@ -144,13 +152,19 @@ func (s *Server) signingKey(hash string) []byte {
 	return m.Sum(nil)
 }
 
-// readPassHash fetches the stored bcrypt hash ("" when unset / no DB).
-func (s *Server) readPassHash() string {
+// readPassHash fetches the stored bcrypt hash ("" when unset / no DB). A read
+// error is returned as-is, never folded into "": GetSetting yields "" both for an
+// unset key and for a failed read, and callers must not treat the latter as "no
+// password yet".
+func (s *Server) readPassHash() (string, error) {
 	if s.m == nil || s.m.pg == nil {
-		return ""
+		return "", nil
 	}
-	h, _, _ := s.m.pg.GetSetting(authPassKey)
-	return h
+	h, _, err := s.m.pg.GetSetting(authPassKey)
+	if err != nil {
+		return "", err
+	}
+	return h, nil
 }
 
 // passHashCacheTTL bounds how long token verification trusts the in-memory hash
@@ -161,13 +175,13 @@ var passHashCacheTTL = 2 * time.Second
 
 // cachedPassHash returns the password hash, re-reading it from the DB once the
 // cache is older than passHashCacheTTL.
-func (s *Server) cachedPassHash() string {
+func (s *Server) cachedPassHash() (string, error) {
 	s.authMu.Lock()
 	fresh := s.passHashLoaded && time.Since(s.passHashAt) < passHashCacheTTL
 	h := s.passHash
 	s.authMu.Unlock()
 	if fresh {
-		return h
+		return h, nil
 	}
 	return s.reloadPassHash()
 }
@@ -182,10 +196,16 @@ func (s *Server) setPassHash(h string) {
 
 // reloadPassHash re-reads the hash from the DB (the password may have been changed
 // outside this process by reset-password.sh) and refreshes the cache.
-func (s *Server) reloadPassHash() string {
-	h := s.readPassHash()
+//
+// On a read error the cache is left untouched, so a DB blip is never cached as
+// "no password".
+func (s *Server) reloadPassHash() (string, error) {
+	h, err := s.readPassHash()
+	if err != nil {
+		return "", err
+	}
 	s.setPassHash(h)
-	return h
+	return h, nil
 }
 
 // verifyToken validates tok against the key derived from the current password
@@ -195,11 +215,14 @@ func (s *Server) verifyToken(tok string) bool {
 	if tok == "" {
 		return false
 	}
-	hash := s.cachedPassHash()
+	hash, err := s.cachedPassHash()
+	if err != nil {
+		return false
+	}
 	if verifyJWT(tok, s.signingKey(hash)) {
 		return true
 	}
-	if fresh := s.reloadPassHash(); fresh != hash {
+	if fresh, err := s.reloadPassHash(); err == nil && fresh != hash {
 		return verifyJWT(tok, s.signingKey(fresh))
 	}
 	return false
@@ -212,17 +235,31 @@ func (s *Server) bootstrapAuth() {
 	if s.m == nil || s.m.pg == nil {
 		return
 	}
-	hash := s.reloadPassHash()
+	hash, err := s.reloadPassHash()
+	if err != nil {
+		// Unknown whether a password exists: neither initialise from the env var
+		// nor issue a setup token now. authStatus re-reads on every request.
+		log.Printf(logT("[auth] 비밀번호 상태를 읽지 못해 첫 실행 초기화를 건너뜁니다: %v"), err)
+		return
+	}
 	if hash != "" {
 		return
 	}
 	if pw := os.Getenv(adminPasswordEnv); pw != "" {
 		if utf8.RuneCountInString(pw) < minPasswordLen {
 			log.Printf(logT("[auth] %s 가 %d자 미만이라 무시합니다. 설정 토큰 방식으로 초기화하세요"), adminPasswordEnv, minPasswordLen)
+		} else if len(pw) > maxPasswordBytes {
+			log.Printf(logT("[auth] %s 가 %d바이트를 넘어 무시합니다. 설정 토큰 방식으로 초기화하세요"), adminPasswordEnv, maxPasswordBytes)
 		} else if h, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost); err != nil {
 			log.Printf(logT("[auth] %s 해시 생성 실패: %v"), adminPasswordEnv, err)
-		} else if err := s.m.pg.SetSetting(authPassKey, string(h)); err != nil {
+		} else if inserted, err := s.m.pg.InsertSettingIfAbsent(authPassKey, string(h)); err != nil {
+			// Same first-set-only guarantee as authInit: an upsert here would let a
+			// second instance starting with a different value overwrite the password.
 			log.Printf(logT("[auth] %s 저장 실패: %v"), adminPasswordEnv, err)
+		} else if !inserted {
+			// Another instance set the password between our read and this write.
+			_, _ = s.reloadPassHash()
+			return
 		} else {
 			s.setPassHash(string(h))
 			log.Printf(logT("[auth] 환경 변수 %s 로 관리자 비밀번호를 초기화했습니다(사용자 이름 ARTEX)"), adminPasswordEnv)
@@ -394,7 +431,10 @@ func isLoopbackAddr(addr string) bool {
 // server accepts connections from other hosts: the setup token blocks a remote
 // takeover, but the port should still not be reachable before setup is done.
 func (s *Server) WarnIfExposed(addr string) {
-	if s.m == nil || s.m.pg == nil || s.cachedPassHash() != "" || isLoopbackAddr(addr) {
+	if s.m == nil || s.m.pg == nil || isLoopbackAddr(addr) {
+		return
+	}
+	if h, err := s.cachedPassHash(); err != nil || h != "" {
 		return
 	}
 	log.Printf(logT("[auth] 경고: 관리자 비밀번호가 아직 설정되지 않았는데 서버가 %q 에 바인딩되어 다른 호스트에서도 접속할 수 있습니다. 설정 토큰 없이는 초기화할 수 없지만, 초기 설정을 마칠 때까지 이 포트를 외부 네트워크에 노출하지 마십시오(기본값 127.0.0.1:8787)"), addr)
@@ -409,7 +449,13 @@ func extractToken(r *http.Request) string {
 	if c, err := r.Cookie("artex_token"); err == nil && c.Value != "" {
 		return c.Value
 	}
-	return r.URL.Query().Get("token")
+	// ?token= is accepted only for EventSource streams (the browser cannot set
+	// headers on those). Elsewhere a URL token would leak through access logs,
+	// proxies and the Referer header.
+	if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		return r.URL.Query().Get("token")
+	}
+	return ""
 }
 
 // requireAuth wraps h with JWT validation.
@@ -442,7 +488,15 @@ func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 	if pg == nil {
 		return
 	}
-	hash := s.reloadPassHash()
+	// 읽기 실패는 initialized:false 가 아니라 503 이어야 한다: 프런트는 initialized:false 를
+	// 보고 사용자를 /setup 으로 보내는데, 데이터베이스 장애를 200 으로 포장하면 사용자를
+	// 기존 비밀번호 덮어쓰기 경로로 밀어넣는 셈이 된다.
+	hash, _, err := pg.GetSetting(authPassKey)
+	if err != nil {
+		writeErr(w, 503, authErrDataSourceUnavailable)
+		return
+	}
+	s.setPassHash(hash)
 	if hash == "" {
 		s.currentSetupToken()
 	}
@@ -475,7 +529,13 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 	// pass the "not yet set" check.
 	s.initMu.Lock()
 	defer s.initMu.Unlock()
-	if existing := s.reloadPassHash(); existing != "" {
+	existing, _, err := pg.GetSetting(authPassKey)
+	if err != nil {
+		writeErr(w, 503, authErrDataSourceUnavailable)
+		return
+	}
+	s.setPassHash(existing)
+	if existing != "" {
 		writeErr(w, 403, authErrPasswordAlreadySet)
 		return
 	}
@@ -493,13 +553,25 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, authErrPasswordTooShort)
 		return
 	}
+	if len(req.Password) > maxPasswordBytes {
+		writeErr(w, 400, authErrPasswordTooLong)
+		return
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		writeErr(w, 500, authErrPasswordHash)
 		return
 	}
-	if err := pg.SetSetting(authPassKey, string(hash)); err != nil {
+	// upsert 대신 INSERT ... ON CONFLICT DO NOTHING: 위 GetSetting 검사는 빠른 실패
+	// 경로일 뿐이고, "최초 1회만 설정" 의 실제 보장은 기본키 제약에 있다. bcrypt 가 수십
+	// 밀리초를 쓰는 동안 다른 요청이 먼저 설정할 수 있고, 읽기 검사가 장애로 무력해질 수도 있다.
+	inserted, err := pg.InsertSettingIfAbsent(authPassKey, string(hash))
+	if err != nil {
 		writeErr(w, 500, trMsg(authErrSaveFailedPrefix)+err.Error())
+		return
+	}
+	if !inserted {
+		writeErr(w, 403, authErrPasswordAlreadySet)
 		return
 	}
 	s.setPassHash(string(hash))
@@ -549,7 +621,15 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, authErrPasswordTooShort)
 		return
 	}
-	hash, ok, _ := pg.GetSetting(authPassKey)
+	if len(req.NewPassword) > maxPasswordBytes {
+		writeErr(w, 400, authErrPasswordTooLong)
+		return
+	}
+	hash, ok, err := pg.GetSetting(authPassKey)
+	if err != nil {
+		writeErr(w, 503, authErrDataSourceUnavailable)
+		return
+	}
 	if !ok || hash == "" {
 		writeErr(w, 403, authErrPasswordNotInit)
 		return
@@ -599,7 +679,11 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, authErrBadRequest)
 		return
 	}
-	hash, ok, _ := pg.GetSetting(authPassKey)
+	hash, ok, err := pg.GetSetting(authPassKey)
+	if err != nil {
+		writeErr(w, 503, authErrDataSourceUnavailable)
+		return
+	}
 	if !ok || hash == "" {
 		writeErr(w, 403, authErrPasswordNotInit)
 		return

@@ -149,6 +149,7 @@ services:
       ARTEX_PG_DSN: postgres://artex:${POSTGRES_PASSWORD}@artex-postgres:5432/artex?sslmode=disable
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       ARTEX_LANG: ${ARTEX_LANG:-en}
+      ARTEX_DISABLE_SELFUPDATE: "1"
       ARTEX_SETUP_TOKEN: ${ARTEX_SETUP_TOKEN:-}
       ARTEX_ADMIN_PASSWORD: ${ARTEX_ADMIN_PASSWORD:-}
       TZ: ${TZ:-UTC}
