@@ -145,3 +145,16 @@ findings, Korean menus.
   here.
 - Never commit `stack.env`, the GHCR token, or any API key anywhere in
   this repo. `*.env` is gitignored; keep it that way.
+
+## Security settings in stack.yml (added 2026-10-29)
+
+- `ARTEX_DISABLE_SELFUPDATE=1`: the in-app updater is off. It is hard-wired to
+  `Autumn-27/artex` and trusts a same-release `SHA256SUMS`; upgrade by pinning
+  a new `ARTEX_TAG` instead.
+- `ARTEX_SETUP_TOKEN` / `ARTEX_ADMIN_PASSWORD`: first-run protection. With no
+  password set, `/api/auth/init` needs the setup token (printed in the container
+  log) and is rate-limited; set `ARTEX_ADMIN_PASSWORD` for unattended setup.
+- Ports 8787/8788 are published on all interfaces; the per-host firewall is the
+  control (see Design-Reference, Section 10.3).
+- Test builds: `./publish.sh v0.1.3-rc.1` pushes only that tag and a GitHub
+  pre-release; `:latest` is not moved. Deploy by pinning `ARTEX_TAG`.

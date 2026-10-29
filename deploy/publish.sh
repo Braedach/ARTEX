@@ -249,13 +249,23 @@ ok "Image built: ${IMAGE_LOCAL}"
 # ---- push to GHCR: version tag + :latest ------------------------------------
 GHCR_REF_VER="${GHCR_REGISTRY}/${GHCR_NAMESPACE}/${GHCR_REPO}:${TAG}"
 GHCR_REF_LATEST="${GHCR_REGISTRY}/${GHCR_NAMESPACE}/${GHCR_REPO}:latest"
+# A test build (tag contains "-rc") must never move :latest and is released as a
+# pre-release, so a branch under test cannot reach a deployment that follows
+# :latest (Design-Reference decision 36).
+IS_RC=0
+[[ "$TAG" == *-rc* ]] && IS_RC=1
 docker tag "$IMAGE_LOCAL" "$GHCR_REF_VER"
-docker tag "$IMAGE_LOCAL" "$GHCR_REF_LATEST"
 info "Pushing ${GHCR_REF_VER}..."
 docker push "$GHCR_REF_VER"
-info "Pushing ${GHCR_REF_LATEST}..."
-docker push "$GHCR_REF_LATEST"
-ok "Pushed ${GHCR_REF_VER} and ${GHCR_REF_LATEST}"
+if [[ "$IS_RC" -eq 1 ]]; then
+  info "Test build (-rc): not touching :latest"
+  ok "Pushed ${GHCR_REF_VER}"
+else
+  docker tag "$IMAGE_LOCAL" "$GHCR_REF_LATEST"
+  info "Pushing ${GHCR_REF_LATEST}..."
+  docker push "$GHCR_REF_LATEST"
+  ok "Pushed ${GHCR_REF_VER} and ${GHCR_REF_LATEST}"
+fi
 
 # ---- package the linux/amd64 zip + checksums, same shape as this repo's own
 #      (unused, by-hand-replaced) release.yml, so it's a familiar artifact
@@ -274,6 +284,7 @@ ok "Packaged ${PKG_DIR}/artex-${VERSION}-linux-amd64.zip"
 info "Creating GitHub Release ${TAG} on ${GH_REPO_SLUG}..."
 gh release create "$TAG" \
   --repo "$GH_REPO_SLUG" \
+  $([[ "$IS_RC" -eq 1 ]] && echo --prerelease) \
   --title "ARTEX ${TAG}" \
   --generate-notes \
   "${PKG_DIR}/artex-${VERSION}-linux-amd64.zip" \
@@ -294,7 +305,7 @@ ok "Build and publish complete for ${TAG}"
 echo ""
 info "Published:"
 echo "    ${GHCR_REF_VER}"
-echo "    ${GHCR_REF_LATEST}"
+[[ "$IS_RC" -eq 1 ]] || echo "    ${GHCR_REF_LATEST}"
 echo "    https://github.com/${GH_REPO_SLUG}/releases/tag/${TAG}"
 echo ""
 warn "First-ever push of this image defaults to PRIVATE on GHCR - flip it to Public"
