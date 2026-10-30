@@ -192,6 +192,28 @@ services:
     networks:
       - artex-net
 
+  # OWASP Juice Shop: deliberately vulnerable web app, the safe target for
+  # functional tests of ARTEX itself (same role as sf-juiceshop in the
+  # SpiderFoot stack). Opt-in: `docker compose --profile testing up -d`.
+  # Reachable by ARTEX at http://artex-juiceshop:3000 on artex-net only;
+  # published to the host's loopback (5003) for a browser via SSH tunnel, never
+  # on a LAN address. Pinned (>= 14 days old); never expose this publicly.
+  juiceshop:
+    image: bkimminich/juice-shop:v20.3.0
+    container_name: artex-juiceshop
+    hostname: artex-juiceshop
+    restart: "no"
+    profiles:
+      - testing
+    ports:
+      - 127.0.0.1:${JUICESHOP_PORT:-5003}:3000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - artex-net
+
 networks:
   artex-net:
     name: artex-net
