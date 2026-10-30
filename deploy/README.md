@@ -43,10 +43,17 @@ anything beyond a local/isolated target.
 ```
 deploy/
 ├── publish.sh            # build + push + release — run on a build host, never a prod/sandbox one
-├── stack.yml             # the actual deployment (Compose)
+├── stack-docker.yml      # the Docker deployment (dev/sandbox, claude) — was stack.yml until 31 Oct 2026
+├── stack-podman.yml      # the Podman deployment (production, baden)
 ├── stack.env.example     # tracked template — names only, no real values
 └── stack.env             # real secrets — gitignored, never commit
 ```
+
+**Two files, not one, since 31 Oct 2026** — matching this repo owner's spiderfoot fork's own
+dev/production split. Same services, same image, same env wiring in both; the only deliberate
+differences are Juice Shop (present in both, see below — this one's own exception to the usual
+"dev-only" convention) and the default `ARTEX_TAG` (floats to `:latest` in the Docker/dev file,
+**required** with no default in the Podman/production one — never let production float).
 
 Runtime data lives outside the repo entirely, at `/srv/artex` on the deploy
 host — not under `deploy/` at all, see Deploy below.
@@ -90,10 +97,14 @@ deploy host won't be able to pull it without its own credentials.
 mkdir -p /srv/artex/{postgres,data,jellyfin/config,jellyfin/cache}
 cd deploy
 cp stack.env.example stack.env   # fill in real values, never commit this
-docker compose -f stack.yml --env-file stack.env up -d
+docker compose -f stack-docker.yml --env-file stack.env up -d
 ```
 
-`stack.yml` only ever pulls the image `publish.sh` built — it never builds
+On the production (Podman/baden) side, use `stack-podman.yml` through Dockhand instead — see its
+own header for the full prerequisites and the Juice Shop caveat; `ARTEX_TAG` is required there,
+with no `:latest` default.
+
+`stack-docker.yml` only ever pulls the image `publish.sh` built — it never builds
 anything itself. It declares its own `artex-net` network (nothing else
 should be attached to it) and a Postgres sidecar, both bind-mounted under
 `/srv/artex` — an absolute host path, not a relative `./volume/` one
@@ -105,11 +116,11 @@ Dockhand/Compose project working directories in particular aren't
 something to assume data survival on. Not a named Docker volume either
 way, so it's visible/backupable as plain files. Front it with whatever
 reverse proxy you already use —
-`stack.yml`'s `homepage.*` labels assume a label-driven dashboard
+`stack-docker.yml`'s `homepage.*` labels assume a label-driven dashboard
 ([gethomepage.dev](https://gethomepage.dev) or similar); drop them if you
 don't use one.
 
-**Optional second test target.** `stack.yml` also defines a `jellyfin`
+**Optional second test target.** `stack-docker.yml` also defines a `jellyfin`
 service behind the `testing` Compose profile — off by default, started with
 `--profile testing`. It's a throwaway instance (no host port, no real
 media, empty library) purely as a non-deliberately-vulnerable app to run
@@ -117,9 +128,17 @@ ARTEX against alongside whatever else, as a check against it manufacturing
 findings on a normal, reasonably-built app the way Juice Shop's
 intentionally broken one can't tell you.
 
+**OWASP Juice Shop** (`juiceshop` service, both files) is the deliberately vulnerable one: a real
+dual-target functional run against it (plus `demo.testfire.net`) on `claude-sonnet-5` found 8
+confirmed, verified vulnerabilities with no off-target requests — see
+[`docs/llm-compatibility.md`](../docs/llm-compatibility.md) for the full write-up, including why
+`claude-sonnet-5-5` can't run ARTEX at all. It's present in `stack-podman.yml` too on this repo
+owner's explicit instruction (31 Oct 2026) — see that file's own Warnings section for the caveat
+about what that means for production.
+
 **Two separate language settings, not one — easy to half-fix, as this
 deployment's own history shows.** `ARTEX_LANG=en` is defaulted in
-`stack.yml` so the agent's own output (findings, reports, chat replies)
+both files so the agent's own output (findings, reports, chat replies)
 starts in English even if `stack.env` doesn't set it explicitly —
 confirmed against this fork's actual startup precedence (`server/server.go`:
 a runtime setting chosen in Settings overrides `ARTEX_LANG`, which
@@ -134,19 +153,15 @@ findings, Korean menus.
 
 ## What to keep in mind
 
-- No `cap_drop`/`read_only` hardening is applied in `stack.yml` yet —
-  ARTEX's own tooling (`nmap` in particular) likely needs `NET_RAW`/
-  `NET_ADMIN`, and Playwright/Chromium tends to want a writable
-  filesystem. Worth tightening once it's actually running, not assumed
-  blind.
-- `stack.yml` is Docker-specific (plain Compose). Porting this to a
-  Podman host isn't a copy-paste — Podman's networking/firewall
-  interaction differs enough that it needs its own pass, not attempted
-  here.
+- No `cap_drop`/`read_only` hardening is applied to the `artex` service
+  in either file yet — ARTEX's own tooling (`nmap` in particular) likely
+  needs `NET_RAW`/`NET_ADMIN`, and Playwright/Chromium tends to want a
+  writable filesystem. Worth tightening once it's actually running, not
+  assumed blind.
 - Never commit `stack.env`, the GHCR token, or any API key anywhere in
   this repo. `*.env` is gitignored; keep it that way.
 
-## Security settings in stack.yml (added 2026-10-29)
+## Security settings (added 2026-10-29, both files)
 
 - `ARTEX_DISABLE_SELFUPDATE=1`: the in-app updater is off. It is hard-wired to
   `Autumn-27/artex` and trusts a same-release `SHA256SUMS`; upgrade by pinning

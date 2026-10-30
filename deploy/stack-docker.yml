@@ -1,31 +1,40 @@
-# deploy/stack.yml
-# Version: 1.0.0
+# deploy/stack-docker.yml  (was deploy/stack.yml until 1.3.0)
+# Version: 1.3.0
 # Created: 2026-10-11
+# Updated: 2026-10-31
 #
 # Summary:
 #   Purpose:
-#     Runs this fork from the image deploy/publish.sh builds and pushes.
-#     Only ever pulls ghcr.io/braedach/artex — never builds anything
-#     itself. See deploy/README.md for the full picture, including what
-#     was and wasn't verified before this was written.
+#     Docker DEVELOPMENT / SANDBOX deployment (claude). Runs this fork from
+#     the image deploy/publish.sh builds and pushes. Only ever pulls
+#     ghcr.io/braedach/artex — never builds anything itself. The same
+#     services, image and env wiring as deploy/stack-podman.yml (production,
+#     baden) — deliberately, so what is tested here is what runs there. See
+#     deploy/README.md for the full picture, including what was and wasn't
+#     verified before this was written.
 #
 #   Usage:
 #     cp stack.env.example stack.env   # fill in real values first
-#     docker compose -f stack.yml --env-file stack.env up -d
+#     docker compose -f stack-docker.yml --env-file stack.env up -d
 #
-#     Add --profile testing to also start a throwaway Jellyfin instance on
-#     artex-net (no host port published, no real media, empty library) as
-#     a second, non-deliberately-vulnerable test target alongside whatever
-#     else you point ARTEX at — useful for checking it doesn't manufacture
-#     findings against a normal, reasonably-built app:
-#       docker compose -f stack.yml --env-file stack.env --profile testing up -d
-#     Omit --profile testing for ordinary use; it won't start by default.
+#     Add --profile testing to also start:
+#       - a throwaway Jellyfin instance on artex-net (no host port
+#         published, no real media, empty library) as a second,
+#         non-deliberately-vulnerable test target — useful for checking
+#         ARTEX doesn't manufacture findings against a normal, reasonably
+#         built app;
+#       - OWASP Juice Shop (bkimminich/juice-shop), a deliberately
+#         vulnerable sandbox target — see the service comment below and
+#         docs/llm-compatibility.md for what a real run against it found.
+#     Omit --profile testing for ordinary use; neither starts by default.
+#       docker compose -f stack-docker.yml --env-file stack.env --profile testing up -d
 #
 #   Prerequisites:
 #     - stack.env populated (ANTHROPIC_API_KEY, POSTGRES_PASSWORD at
 #       minimum) — see stack.env.example
 #     - /srv/artex/{postgres,data} exist on the host (and
-#       /srv/artex/jellyfin/{config,cache} too if using --profile testing).
+#       /srv/artex/jellyfin/{config,cache} too if using --profile testing;
+#       Juice Shop needs no host directory, it's stateless/disposable).
 #       artex runs as root in its own container (confirmed directly — data
 #       it wrote during testing came back root-owned on the host), and the
 #       official postgres image's entrypoint chowns its data dir itself on
@@ -40,45 +49,33 @@
 #       wired up separately — not done by this file
 #
 #   Warnings:
-#     - ARTEX_LANG=en is set below with a default so the agent's own
-#       OUTPUT (findings/reports/chat text) starts in English even if
-#       stack.env is incomplete — see server/server.go's precedence chain
-#       (runtime DB setting > ARTEX_LANG > config file > "ko", confirmed
-#       in this fork's own source). Once someone changes the language
-#       from the Settings UI, that runtime setting (stored in Postgres)
-#       wins from then on regardless of this default.
-#     - This does NOT control the UI chrome's language (menus, buttons,
-#       page text) — that's a genuinely separate setting, baked into the
-#       static frontend at BUILD time (see deploy/publish.sh's
-#       PUBLISH_UI_LOCALE), then overridable per-browser only (cookie/
-#       localStorage, resets on a fresh browser/cleared site data).
-#       Confirmed the hard way: setting only ARTEX_LANG produced English
-#       server logs and agent output with a still-Korean UI, because the
-#       image this was running had been built without PUBLISH_UI_LOCALE
-#       set, so the static export's baked-in default ("ko") was all any
-#       fresh browser ever saw.
-#     - No cap_drop/read_only hardening applied yet — this fork's own
-#       tooling (nmap in particular) likely needs NET_RAW/NET_ADMIN, and
-#       Playwright/Chromium tends to need a writable filesystem. Verify
-#       what's actually needed once this is running for real before
-#       tightening — don't assume cap_drop: ALL works without testing.
-#     - :latest is used deliberately (ARTEX_TAG default) — intended for a
-#       development/sandbox deployment, not production; still a manual
-#       `docker compose pull && up -d`, never an auto-updater. Pin
-#       ARTEX_TAG to a specific version if that stops being true.
-#     - All state is bind-mounted under /srv/artex on the host (absolute
-#       path, not a relative ./volume/ one — a relative bind mount isn't
-#       guaranteed to resolve against a stable, persistent directory under
-#       every deployment tool; Dockhand/Compose project working directories
-#       in particular aren't something to assume data survival on). Not a
-#       named Docker volume either way, so it's visible/backupable as
-#       plain files, matching this repo owner's other stacks' convention.
-#     - This stack does not add any network-level isolation beyond its
-#       own `artex-net` — see deploy/README.md's "what wasn't verified"
-#       section before pointing this at anything beyond a local/isolated
-#       target.
+#     - Everything about the artex service (env wiring, ARTEX_LANG vs
+#       PUBLISH_UI_LOCALE, ARTEX_DISABLE_SELFUPDATE, the absolute /srv bind
+#       mounts) is inherited from stack-podman.yml — read its header for the
+#       full reasoning. Keep the two files in step: a change made in one
+#       that isn't made in the other defeats the point of a dev stack. The
+#       deliberate exceptions are Juice Shop (below, dev-only by design —
+#       see the service comment) and :latest as the default tag (podman
+#       pins an exact tag; this stack is explicitly the place a floating
+#       tag is acceptable).
+#     - No cap_drop/read_only hardening applied to the artex service itself
+#       yet — this fork's own tooling (nmap in particular) likely needs
+#       NET_RAW/NET_ADMIN, and Playwright/Chromium tends to need a writable
+#       filesystem. Verify what's actually needed before tightening — don't
+#       assume cap_drop: ALL works without testing.
+#     - This stack does not add any network-level isolation beyond its own
+#       `artex-net` — see deploy/README.md's "what wasn't verified" section
+#       before pointing this at anything beyond a local/isolated target.
 #
 # Changelog:
+#   1.3.0 (2026-10-31) - Renamed from stack.yml to stack-docker.yml, paired with
+#     the new deploy/stack-podman.yml (production, baden) — same split as this
+#     repo owner's spiderfoot fork. Added OWASP Juice Shop as a testing-profile
+#     service, loopback-published, cap_drop ALL. A real dual-target run against
+#     it (plus demo.testfire.net) on claude-sonnet-5 found 8 confirmed, verified
+#     vulnerabilities with no off-target requests — see docs/llm-compatibility.md
+#     for the full write-up, including the claude-sonnet-5-5 refusal finding
+#     that run also surfaced.
 #   1.2.1 (2026-10-11) - Corrected the ARTEX_LANG comment: it only ever
 #     controlled server-side agent output, never the UI chrome — that's
 #     a separate, build-time-only setting, fixed in deploy/publish.sh
@@ -189,6 +186,27 @@ services:
       - /srv/artex/jellyfin/cache:/cache
     security_opt:
       - no-new-privileges:true
+    networks:
+      - artex-net
+
+  # Deliberately vulnerable scan target for functional testing of ARTEX
+  # itself. Dev/sandbox stack ONLY — do not add this service to
+  # stack-podman.yml. Only starts with --profile testing. Pinned (bump
+  # deliberately, not :latest); never publish this beyond loopback.
+  # Reachable from artex at http://artex-juiceshop:3000.
+  juiceshop:
+    image: bkimminich/juice-shop:v20.3.0
+    container_name: artex-juiceshop
+    hostname: artex-juiceshop
+    restart: "no"
+    profiles:
+      - testing
+    ports:
+      - 127.0.0.1:${JUICESHOP_PORT:-5003}:3000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     networks:
       - artex-net
 
