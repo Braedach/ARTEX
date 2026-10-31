@@ -20,7 +20,7 @@
 #     PUBLISH_UI_LOCALE=ko ./publish.sh v0.1.0   # bakes a different UI
 #       chrome default (en/ko/zh/es) into the static frontend export at
 #       build time. Default "en". This is NOT the same thing as
-#       ARTEX_LANG in stack.yml — see the Warnings below.
+#       ARTEX_LANG in stack-docker.yml/stack-podman.yml — see the Warnings below.
 #
 #   Prerequisites:
 #     - git + docker on the build host (the actual Go/Node toolchain runs
@@ -38,7 +38,7 @@
 #
 #   Warnings:
 #     - PUBLISH_UI_LOCALE (this script, build time) and ARTEX_LANG
-#       (stack.yml, container runtime) are two genuinely separate
+#       (stack-docker.yml/stack-podman.yml, container runtime) are two genuinely separate
 #       settings controlling two separate things, confirmed from this
 #       fork's own source: the UI chrome's default locale is a static-
 #       export build-time constant with no runtime override possible
@@ -80,7 +80,7 @@
 #   1.1.0 (2026-10-11) - Added PUBLISH_UI_LOCALE (passed to the frontend
 #     build as NEXT_PUBLIC_LOCALE), defaulting to "en" — the UI chrome's
 #     default locale is a build-time-only constant, separate from
-#     stack.yml's ARTEX_LANG (server-side agent-output language only).
+#     stack-docker.yml/stack-podman.yml's ARTEX_LANG (server-side agent-output language only).
 #   1.0.0 (2026-10-11) - Initial version.
 #
 # =============================================================================
@@ -183,7 +183,13 @@ if [[ "$CHECK_ONLY" -eq 0 ]]; then
 fi
 
 # ---- check out the requested tag in-place -----------------------------------
-git -C "$REPO_ROOT" fetch origin --tags
+# --force: a plain `fetch --tags` refuses to move ANY local tag ref that
+# differs from origin's, even one that already points at the identical commit
+# (observed on davros 31 Oct 2026) — and under `set -e` that silently kills the
+# whole release right here, with no obvious link between the error and the
+# cause. This clone is a disposable build checkout, so origin is always
+# authoritative for the fork's own tags; forcing is safe here.
+git -C "$REPO_ROOT" fetch origin --tags --force
 git -C "$REPO_ROOT" checkout "$TAG"
 CURRENT_SHA=$(git -C "$REPO_ROOT" rev-parse --short HEAD)
 info "Source at ${TAG} (${CURRENT_SHA})"
